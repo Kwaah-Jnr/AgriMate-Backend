@@ -1,0 +1,455 @@
+const pool = require("../database");
+
+// Helper to lazily create or fetch a wallet
+async function getOrCreateWallet(client, userId) {
+  const existing = await client.query("SELECT * FROM wallets WHERE user_id = $1", [userId]);
+  if (existing.rows.length > 0) {
+    return existing.rows[0];
+  }
+  const created = await client.query(
+    "INSERT INTO wallets (user_id, balance, escrow_balance) VALUES ($1, 0.00, 0.00) RETURNING *",
+    [userId]
+  );
+  return created.rows[0];
+}
+
+// Helper to log actions into history
+async function logHistory(client, userId, actionType, referenceId, description) {
+  await client.query(
+    "INSERT INTO history (user_id, action_type, reference_id, description) VALUES ($1, $2, $3, $4)",
+    [userId, actionType, referenceId, description]
+  );
+}
+
+/* ==========================================================================
+   1. Job Discovery & Assignment
+   ========================================================================== */
+
+exports.getAvailableJobs = async (req, res) => {
+  const { region } = req.query;
+
+  try {
+    let query = `
+      SELECT j.job_id, j.distance_km, j.payout, j.status as job_status, 
+              l.crop_name, l.grade, l.location as pickup_location,
+              u.username as farmer_name, u.region as farmer_region
+       FROM jobs j
+       JOIN orders o ON j.order_id = o.order_id
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON l.user_id = u.user_id
+       WHERE j.status = 'available'
+    `;
+    const params = [];
+
+    if (region) {
+      params.push(region);
+      query += ` AND u.region = $1`;
+    }
+
+    query += " ORDER BY j.created_at DESC";
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching available jobs:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.claimJob = async (req, res) => {
+  const jobId = req.params.id;
+  const transporterId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Check job availability
+    const check = await client.query("SELECT * FROM jobs WHERE job_id = $1", [jobId]);
+    if (check.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Logistics job not found." });
+    }
+    const job = check.rows[0];
+
+    if (job.status !== "available") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Cannot claim job. Job status is '${job.status}'.` });
+    }
+
+    // 1. Claim job
+    await client.query(
+      "UPDATE jobs SET transporter_id = $1, status = 'assigned', updated_at = NOW() WHERE job_id = $2",
+      [transporterId, jobId]
+    );
+
+    // 2. Update order status to assigned/in_transit
+    await client.query(
+      "UPDATE orders SET status = 'assigned', updated_at = NOW() WHERE order_id = $1",
+      [job.order_id]
+    );
+
+    // 3. Log history
+    await logHistory(client, transporterId, "job_claimed", jobId, `Claimed logistics job ID ${jobId} (order ${job.order_id})`);
+
+    await client.query("COMMIT");
+    res.json({ message: "Logistics job claimed successfully.", job_id: jobId });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error claiming job:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+/* ==========================================================================
+   2. Delivery Workflow
+   ========================================================================== */
+
+exports.confirmPickup = async (req, res) => {
+  const jobId = req.params.id;
+  const { qr_code } = req.body;
+  const transporterId = req.user.user_id;
+
+  if (!qr_code) {
+    return res.status(400).json({ error: "QR code payload is required." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify job belongs to transporter and status is assigned
+    const check = await client.query("SELECT * FROM jobs WHERE job_id = $1", [jobId]);
+    if (check.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Job not found." });
+    }
+    const job = check.rows[0];
+
+    if (job.transporter_id !== transporterId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You are not assigned to this job." });
+    }
+
+    if (job.status !== "assigned") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Handoff invalid. Job is in '${job.status}' state.` });
+    }
+
+    // Verify QR code matches
+    if (job.qr_pickup !== qr_code) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Invalid QR Code for pickup verification." });
+    }
+
+    // 1. Update job status
+    await client.query("UPDATE jobs SET status = 'picked_up', updated_at = NOW() WHERE job_id = $1", [jobId]);
+
+    // 2. Update order status
+    await client.query("UPDATE orders SET status = 'picked_up', updated_at = NOW() WHERE order_id = $1", [job.order_id]);
+
+    // 3. Log history
+    await logHistory(client, transporterId, "job_pickup_confirmed", jobId, `Confirmed crop pickup for job ID ${jobId}`);
+
+    await client.query("COMMIT");
+    res.json({ message: "Pickup confirmed. Crop is in transit.", job_id: jobId });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error confirming pickup:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
+exports.confirmDelivery = async (req, res) => {
+  const jobId = req.params.id;
+  const { qr_code } = req.body;
+  const transporterId = req.user.user_id;
+
+  if (!qr_code) {
+    return res.status(400).json({ error: "QR code payload is required." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify job belongs to transporter and status is picked_up
+    const check = await client.query("SELECT * FROM jobs WHERE job_id = $1", [jobId]);
+    if (check.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Job not found." });
+    }
+    const job = check.rows[0];
+
+    if (job.transporter_id !== transporterId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You are not assigned to this job." });
+    }
+
+    if (job.status !== "picked_up") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Handoff invalid. Job is in '${job.status}' state.` });
+    }
+
+    // Verify QR code matches
+    if (job.qr_delivery !== qr_code) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Invalid QR Code for delivery verification." });
+    }
+
+    // 1. Update job status to delivered
+    await client.query("UPDATE jobs SET status = 'delivered', updated_at = NOW() WHERE job_id = $1", [jobId]);
+
+    // 2. Update order status to delivered
+    await client.query("UPDATE orders SET status = 'delivered', updated_at = NOW() WHERE order_id = $1", [job.order_id]);
+
+    // 3. Update payment status to confirmed
+    await client.query("UPDATE payments SET status = 'confirmed', confirmed_at = NOW() WHERE order_id = $1", [job.order_id]);
+
+    // 4. Trigger Escrow Release to Farmer
+    const orderQuery = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [job.order_id]
+    );
+    const order = orderQuery.rows[0];
+    const farmerId = order.farmer_id;
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
+
+    // Deduct from farmer's escrow balance and add to settled balance
+    const farmerWallet = await getOrCreateWallet(client, farmerId);
+    const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - orderTotal);
+    const newFarmerBalance = parseFloat(farmerWallet.balance) + orderTotal;
+
+    await client.query(
+      "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+      [newFarmerBalance, newFarmerEscrow, farmerId]
+    );
+    await logHistory(client, farmerId, "escrow_released", order.order_id, `Released ${orderTotal} GHS from escrow to wallet balance for completed order ID ${order.order_id}`);
+
+    // 5. Trigger Transporter Payout
+    const transPayout = parseFloat(job.payout);
+    const transWallet = await getOrCreateWallet(client, transporterId);
+    const newTransBalance = parseFloat(transWallet.balance) + transPayout;
+
+    await client.query(
+      "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
+      [newTransBalance, transporterId]
+    );
+    await logHistory(client, transporterId, "payout_received", jobId, `Received payout of ${transPayout} GHS for completed logistics job ID ${jobId}`);
+
+    await client.query("COMMIT");
+    res.json({ message: "Delivery confirmed. Escrow released to farmer and payout transferred to transporter.", job_id: jobId });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error confirming delivery:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+/* ==========================================================================
+   3. Payments & Payouts
+   ========================================================================== */
+
+exports.getEarnings = async (req, res) => {
+  const transporterId = req.user.user_id;
+
+  try {
+    const result = await pool.query(
+      `SELECT j.job_id, j.distance_km, j.payout, j.updated_at as completed_at,
+              l.crop_name, l.grade, l.location as pickup_location
+       FROM jobs j
+       JOIN orders o ON j.order_id = o.order_id
+       JOIN listings l ON o.listings_id = l.listing_id
+       WHERE j.transporter_id = $1 AND j.status = 'delivered'
+       ORDER BY j.updated_at DESC`,
+      [transporterId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching earnings:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.getWallet = async (req, res) => {
+  const userId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    const wallet = await getOrCreateWallet(client, userId);
+    res.json(wallet);
+  } catch (err) {
+    console.error("❌ Error fetching wallet:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
+exports.withdrawFunds = async (req, res) => {
+  const userId = req.user.user_id;
+  const { amount, phone } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ error: "A valid positive withdrawal amount is required." });
+  }
+  if (!phone) {
+    return res.status(400).json({ error: "A target MoMo phone number is required." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const wallet = await getOrCreateWallet(client, userId);
+    const balance = parseFloat(wallet.balance);
+
+    if (balance < amount) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Insufficient balance for withdrawal." });
+    }
+
+    const newBalance = balance - amount;
+    await client.query("UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2", [newBalance, userId]);
+    
+    // Log history
+    await logHistory(client, userId, "withdraw_momo", wallet.wallet_id, `Withdrew ${amount} GHS to MoMo wallet (${phone})`);
+
+    await client.query("COMMIT");
+    res.json({ message: "Withdrawal successful.", new_balance: newBalance });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error withdrawing funds:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
+/* ==========================================================================
+   4. Ratings & Reputation
+   ========================================================================== */
+
+exports.rateUser = async (req, res) => {
+  const { rated_user_id, score, comment } = req.body;
+  const transporterId = req.user.user_id;
+
+  if (!rated_user_id || !score) {
+    return res.status(400).json({ error: "Rated user ID and rating score (1-5) are required." });
+  }
+  const scoreInt = parseInt(score);
+  if (Number.isNaN(scoreInt) || scoreInt < 1 || scoreInt > 5) {
+    return res.status(400).json({ error: "Rating score must be an integer between 1 and 5." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify transporter completed a job involving this user
+    // (This user must either be the farmer of the listing, or the buyer of the order)
+    const tradeCheck = await client.query(
+      `SELECT COUNT(*) 
+       FROM jobs j
+       JOIN orders o ON j.order_id = o.order_id
+       JOIN listings l ON o.listings_id = l.listing_id
+       WHERE j.transporter_id = $1 AND j.status = 'delivered' AND (l.user_id = $2 OR o.buyer_id = $2)`,
+      [transporterId, rated_user_id]
+    );
+
+    if (parseInt(tradeCheck.rows[0].count) === 0) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You can only rate a farmer/buyer after completing a delivery job for them." });
+    }
+
+    const result = await client.query(
+      `INSERT INTO ratings (user_id, rated_user_id, score, comment) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING *`,
+      [transporterId, rated_user_id, scoreInt, comment || null]
+    );
+    const rating = result.rows[0];
+
+    await logHistory(client, transporterId, "rating_submitted", rating.rating_id, `Rated user ID ${rated_user_id} with score ${scoreInt}`);
+
+    await client.query("COMMIT");
+    res.status(201).json(rating);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error rating user:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+exports.getRatings = async (req, res) => {
+  const userId = req.user.user_id;
+
+  try {
+    const result = await pool.query(
+      `SELECT r.rating_id, r.score, r.comment, r.created_at, u.username as reviewer_name
+       FROM ratings r
+       JOIN users u ON r.user_id = u.user_id
+       WHERE r.rated_user_id = $1
+       ORDER BY r.created_at DESC`,
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching ratings:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* ==========================================================================
+   5. Analytics
+   ========================================================================== */
+
+exports.getAnalytics = async (req, res) => {
+  const transporterId = req.user.user_id;
+
+  try {
+    // 1. Total jobs completed
+    const jobsCount = await pool.query(
+      "SELECT COUNT(*) FROM jobs WHERE transporter_id = $1 AND status = 'delivered'",
+      [transporterId]
+    );
+
+    // 2. Average delivery time in hours (from pickup to delivery)
+    // We calculate this using update timestamps or history logs.
+    // Let's check updated_at (which holds delivery timestamp) minus created_at (or simple mock value if empty)
+    const deliveryTimes = await pool.query(
+      `SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 3600)::DECIMAL(10,2) as avg_hours_to_delivery
+       FROM jobs
+       WHERE transporter_id = $1 AND status = 'delivered'`,
+      [transporterId]
+    );
+
+    // 3. Total revenue earned
+    const revenueSum = await pool.query(
+      "SELECT SUM(payout)::DECIMAL(12,2) as total_earnings FROM jobs WHERE transporter_id = $1 AND status = 'delivered'",
+      [transporterId]
+    );
+
+    res.json({
+      total_jobs_completed: parseInt(jobsCount.rows[0].count),
+      total_earnings: parseFloat(revenueSum.rows[0].total_earnings) || 0.00,
+      average_delivery_hours: deliveryTimes.rows[0].avg_hours_to_delivery
+        ? parseFloat(deliveryTimes.rows[0].avg_hours_to_delivery)
+        : "N/A"
+    });
+  } catch (err) {
+    console.error("❌ Error fetching transporter analytics:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};

@@ -3,45 +3,65 @@ const bcrypt = require("bcryptjs");
 
 // Logic to register a new user
 const registerUser = async (req, res) => {
-  const { username, phone_number, email, pin } = req.body;
+  const { full_name, username, email, phone, phone_number, region, password, pin, role } = req.body;
 
-  // // Start a tranction
-  // const client = await pool.connect();
-    
-    try {
-      // await client.query("BEGIN"); // Start transaction
+  const usernameVal = full_name || username;
+  const emailVal = email;
+  const phoneVal = phone || phone_number;
+  const passwordVal = password || pin;
+  const roleVal = role ? String(role).trim().toLowerCase() : 'farmer';
 
+  if (!usernameVal || !emailVal || !passwordVal) {
+    return res.status(400).json({ error: "Username/Full name, email, and password/pin are required fields." });
+  }
 
-      //1. Hash the pin before storing it in the database
+  if (roleVal !== 'farmer' && roleVal !== 'buyer' && roleVal !== 'transporter') {
+    return res.status(400).json({ error: "Role must be 'farmer', 'buyer', or 'transporter'." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1. Hash the password/pin before storing it in the database
     const salt = await bcrypt.genSalt(10);
-    const hashedPin = await bcrypt.hash(pin, salt);
+    const hashedPassword = await bcrypt.hash(passwordVal, salt);
 
-    //2. Insert User into the database
-    const newUser = await pool.query(
-      "INSERT INTO users (username, phone_number, email, pin) VALUES ($1, $2, $3, $4) RETURNING user_id, username",
-      [username, phone_number, email, hashedPin]
+    // 2. Insert User into the users table
+    const newUser = await client.query(
+      "INSERT INTO users (username, phone_number, email, pin, region) VALUES ($1, $2, $3, $4, $5) RETURNING user_id, username, email, phone_number, region",
+      [usernameVal, phoneVal || null, emailVal, hashedPassword, region || null]
     );
 
-    // const userId = newUser.rows[0].user_id;
+    const userId = newUser.rows[0].user_id;
 
-    // //3. Insert Role (must be 'farmer' or 'buyer')
-    // const role = await client.query(
-    //   "INSERT INTO roles (user_id, role) VALUES ($1, $2)",
-    //   [userId, role] 
-    // );
+    // 3. Insert Role into roles table
+    await client.query(
+      "INSERT INTO roles (user_id, role) VALUES ($1, $2)",
+      [userId, roleVal]
+    );
 
-    //4. Save everything to the database
-    // await client.query("COMMIT");
+    // 4. Save everything to the database
+    await client.query("COMMIT");
 
     res.status(201).json({
       message: "User and Role registered successfully!",
-      user: newUser.rows[0],
+      user: {
+        user_id: userId,
+        username: newUser.rows[0].username,
+        email: newUser.rows[0].email,
+        phone_number: newUser.rows[0].phone_number,
+        region: newUser.rows[0].region,
+        role: roleVal
+      },
     });
   } catch (err) {
-    // await client.query("ROLLBACK"); // Cancel everything if there is an error
+    await client.query("ROLLBACK");
     console.error("❌ Error registering user");
     console.error("Error details:", err.message);
-    res.status(500).json({ error: "Internal server error or user already exists" });
+    res.status(500).json({ error: "Internal server error or user already exists: " + err.message });
+  } finally {
+    client.release();
   }
 };
 

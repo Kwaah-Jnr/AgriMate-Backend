@@ -1,9 +1,11 @@
-require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
 const pool = require("./database");
 const userRoutes = require("./routes/userRoutes");
 const authRoutes = require("./routes/authRoutes");
+const farmerRoutes = require("./routes/farmerRoutes");
+const buyerRoutes = require("./routes/buyerRoutes");
+const transporterRoutes = require("./routes/transporterRoutes");
 
 const app = express();
 
@@ -11,6 +13,9 @@ app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/farmer", farmerRoutes);
+app.use("/api/buyer", buyerRoutes);
+app.use("/api/transporter", transporterRoutes);
 
 //Basic welcome route
 app.get("/", (req, res) => {
@@ -32,6 +37,12 @@ app.get("/test-db", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+server.on('error', (err) => {
+  console.error("❌ Server failed to start:");
+  console.error(err);
+  process.exit(1);
 });
