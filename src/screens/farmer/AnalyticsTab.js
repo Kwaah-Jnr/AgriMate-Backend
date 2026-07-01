@@ -65,7 +65,7 @@ export default function AnalyticsTab() {
             <Text style={styles.badgeText}>+12.4% MoM</Text>
           </View>
         </View>
-        <Text style={styles.revenueAmount}>${parseFloat(metrics?.grossRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.revenueAmount}>GH₵{parseFloat(metrics?.grossRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
         <Text style={styles.revenueSubtext}>Settled payouts directly deposited via Mobile Money</Text>
       </View>
 
@@ -73,7 +73,7 @@ export default function AnalyticsTab() {
       <View style={styles.grid}>
         <View style={styles.gridCard}>
           <View style={[styles.iconContainer, { backgroundColor: '#EFF6FF' }]}>
-            <DollarSign size={18} color="#2563EB" />
+            <CheckCircle2 size={18} color="#2563EB" />
           </View>
           <Text style={styles.gridCardValue}>{metrics?.soldListings || 0}</Text>
           <Text style={styles.gridCardLabel}>Completed Orders</Text>

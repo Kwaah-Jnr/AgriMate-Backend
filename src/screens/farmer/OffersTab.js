@@ -8,14 +8,18 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  Modal,
+  Platform,
 } from 'react-native';
 import { api } from '../../services/api';
-import { Check, X, Box } from 'lucide-react-native';
+import { Check, X, Box, QrCode } from 'lucide-react-native';
 
 export default function OffersTab() {
   const [offers, setOffers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeSegment, setActiveSegment] = useState('pending'); // pending, active_contracts
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [selectedOrderForQr, setSelectedOrderForQr] = useState(null);
 
   const fetchFarmerOffers = async () => {
     setIsLoading(true);
@@ -96,13 +100,22 @@ export default function OffersTab() {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.buyerName}>{item.buyerName}</Text>
-          <Text style={styles.totalValue}>${totalValue.toLocaleString()}</Text>
+          <Text style={styles.totalValue}>GH₵{totalValue.toLocaleString()}</Text>
         </View>
 
         <View style={styles.cardMeta}>
           <Text style={styles.metaLabel}>CROP VALUE</Text>
-          <Text style={styles.metaValue}>{item.quantity} lbs @ ${item.price.toFixed(2)}/lb</Text>
+          <Text style={styles.metaValue}>{item.quantity} lbs @ GH₵{item.price.toFixed(2)}/lb</Text>
         </View>
+
+        {item.transporterVehicle && (
+          <View style={[styles.cardMeta, { marginTop: 8 }]}>
+            <Text style={styles.metaLabel}>LOGISTICS VEHICLE</Text>
+            <Text style={[styles.metaValue, { fontWeight: '750', color: '#12372A' }]}>
+              {item.transporterVehicle}
+            </Text>
+          </View>
+        )}
 
         {item.status === 'pending' && (
           <View style={styles.actionRow}>
@@ -125,24 +138,54 @@ export default function OffersTab() {
         )}
 
         {item.status === 'accepted' && (
-          <View style={styles.contractStatusRow}>
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusBadgeText}>ESCROW LOCKED</Text>
+          item.isDisputed ? (
+            <View style={styles.contractStatusRow}>
+              <View style={[styles.statusBadge, { backgroundColor: '#FEE2E2', flex: 1, marginRight: 0, paddingVertical: 10 }]}>
+                <Text style={[styles.statusBadgeText, { color: '#EF4444', textAlign: 'center', fontWeight: '700' }]}>
+                  CONTRACT DISPUTED (LOCKED)
+                </Text>
+              </View>
             </View>
-            
-            <TouchableOpacity 
-              style={styles.fulfillBtn} 
-              onPress={() => handleFulfillOrder(item.id)}
-            >
-              <Box size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.fulfillBtnText}>Mark as Ready</Text>
-            </TouchableOpacity>
-          </View>
+          ) : (
+            <View style={styles.contractStatusRow}>
+              <View style={[styles.statusBadge, !item.isEscrowFunded && { backgroundColor: '#FEE2E2' }]}>
+                <Text style={[styles.statusBadgeText, !item.isEscrowFunded && { color: '#EF4444' }]}>
+                  {item.isEscrowFunded ? 'ESCROW LOCKED' : 'AWAITING ESCROW'}
+                </Text>
+              </View>
+              
+              <TouchableOpacity 
+                style={[styles.fulfillBtn, !item.isEscrowFunded && { backgroundColor: '#CBD5E1' }]} 
+                disabled={!item.isEscrowFunded}
+                onPress={() => {
+                  setSelectedOrderForQr(item);
+                  setQrModalVisible(true);
+                }}
+              >
+                <QrCode size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.fulfillBtnText}>Show Pickup QR</Text>
+              </TouchableOpacity>
+            </View>
+          )
         )}
 
         {item.status === 'fulfilled' && (
-          <View style={styles.completedBadge}>
-            <Text style={styles.completedBadgeText}>READY FOR PICKUP • FUNDS SETTLED</Text>
+          <View style={[
+            styles.completedBadge, 
+            item.escrowStatus === 'half_released' && { backgroundColor: '#EFF6FF' },
+            item.escrowStatus === 'released' && { backgroundColor: '#ECFDF5' }
+          ]}>
+            <Text style={[
+              styles.completedBadgeText,
+              item.escrowStatus === 'half_released' && { color: '#2563EB' },
+              item.escrowStatus === 'released' && { color: '#16A34A' }
+            ]}>
+              {item.escrowStatus === 'released' 
+                ? 'COMPLETED • 100% FUNDS RELEASED' 
+                : item.escrowStatus === 'half_released' 
+                  ? 'IN TRANSIT • 50% FUNDS SETTLED' 
+                  : 'READY FOR PICKUP • FUNDS SECURED'}
+            </Text>
           </View>
         )}
       </View>
@@ -192,6 +235,37 @@ export default function OffersTab() {
           }
         />
       )}
+
+      {/* Farmer Pickup QR Modal */}
+      <Modal
+        visible={qrModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setQrModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Cargo Pickup QR Code</Text>
+            <Text style={styles.modalDesc}>
+              Let the Transporter or Buyer scan this QR Code to verify shipment pickup. This will trigger escrow settlement.
+            </Text>
+
+            <View style={styles.qrCodeBox}>
+              <QrCode size={120} color="#12372A" />
+              <Text style={styles.qrTokenText}>
+                TOKEN: agrimate-pickup-{selectedOrderForQr?.orderId || selectedOrderForQr?.id}
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.closeModalBtn}
+              onPress={() => setQrModalVisible(false)}
+            >
+              <Text style={styles.closeModalBtnText}>Close QR Code</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -364,5 +438,59 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 13,
     color: '#94A3B8',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 24,
+    width: '100%',
+    maxWidth: 300,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 8,
+  },
+  modalDesc: {
+    fontSize: 11,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 15,
+  },
+  qrCodeBox: {
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 20,
+  },
+  qrTokenText: {
+    fontSize: 8,
+    color: '#64748B',
+    marginTop: 10,
+    fontWeight: '600',
+  },
+  closeModalBtn: {
+    backgroundColor: '#12372A',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+  },
+  closeModalBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

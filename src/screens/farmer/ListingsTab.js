@@ -135,7 +135,7 @@ export default function ListingsTab() {
           <Text style={styles.cropName}>{item.cropName}</Text>
           <Text style={styles.cropQty}>{item.quantity} lbs • {item.grade}</Text>
         </View>
-        <Text style={styles.cropPrice}>${item.price.toFixed(2)}/lb</Text>
+        <Text style={styles.cropPrice}>GH₵{item.price.toFixed(2)}/lb</Text>
       </View>
       
       {item.description ? (
@@ -259,7 +259,7 @@ export default function ListingsTab() {
                   />
                 </View>
                 <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Price per lb ($) *</Text>
+                  <Text style={styles.label}>Price per lb (GH₵) *</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="e.g., 1.50"

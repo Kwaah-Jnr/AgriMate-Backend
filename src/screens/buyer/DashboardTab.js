@@ -1,4 +1,4 @@
-// src/screens/farmer/DashboardTab.js
+// src/screens/buyer/DashboardTab.js
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -12,14 +12,13 @@ import {
 } from 'react-native';
 import { api } from '../../services/api';
 import {
-  Leaf,
+  Search,
   ShoppingBag,
-  Wallet,
-  Star,
-  BarChart3,
+  Clock,
   MapPin,
   ArrowRight,
   TrendingUp,
+  AlertTriangle,
 } from 'lucide-react-native';
 
 export default function DashboardTab({ user, onNavigate }) {
@@ -38,10 +37,10 @@ export default function DashboardTab({ user, onNavigate }) {
     }
     
     try {
-      const data = await api.fetchDashboardSummary();
+      const data = await api.fetchBuyerDashboardSummary();
       setSummary(data);
     } catch (error) {
-      console.error('Error fetching dashboard summary:', error);
+      console.error('Error fetching buyer dashboard summary:', error);
       Alert.alert('Error', 'Failed to retrieve dashboard summary.');
     } finally {
       setIsLoading(false);
@@ -85,33 +84,19 @@ export default function DashboardTab({ user, onNavigate }) {
       </View>
 
       {/* Overview Stats Title */}
-      <Text style={styles.sectionTitle}>Overview Stats</Text>
+      <Text style={styles.sectionTitle}>Procurement Overview</Text>
 
       {/* Quick Stats Grid */}
       <View style={styles.grid}>
         <TouchableOpacity 
           style={styles.statCard} 
-          onPress={() => onNavigate('listings')}
-        >
-          <View style={[styles.iconBox, { backgroundColor: '#ECFDF5' }]}>
-            <Leaf size={16} color="#059669" />
-          </View>
-          <Text style={styles.statValue}>{summary?.activeListingsCount || 0}</Text>
-          <Text style={styles.statLabel}>Active Listings</Text>
-          <View style={styles.cardArrow}>
-            <ArrowRight size={12} color="#94A3B8" />
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.statCard} 
           onPress={() => onNavigate('offers')}
         >
-          <View style={[styles.iconBox, { backgroundColor: '#FFFBEB' }]}>
-            <ShoppingBag size={16} color="#D97706" />
+          <View style={[styles.iconBox, { backgroundColor: '#ECFDF5' }]}>
+            <ShoppingBag size={16} color="#059669" />
           </View>
-          <Text style={styles.statValue}>{summary?.pendingOffersCount || 0}</Text>
-          <Text style={styles.statLabel}>Pending Offers</Text>
+          <Text style={styles.statValue}>{summary?.activeOffersCount || 0}</Text>
+          <Text style={styles.statLabel}>Active Offers</Text>
           <View style={styles.cardArrow}>
             <ArrowRight size={12} color="#94A3B8" />
           </View>
@@ -119,15 +104,15 @@ export default function DashboardTab({ user, onNavigate }) {
 
         <TouchableOpacity 
           style={styles.statCard} 
-          onPress={() => onNavigate('wallet')}
+          onPress={() => onNavigate('orders')}
         >
           <View style={[styles.iconBox, { backgroundColor: '#EFF6FF' }]}>
-            <Wallet size={16} color="#2563EB" />
+            <Clock size={16} color="#2563EB" />
           </View>
           <Text style={styles.statValue}>
-            GH₵{((summary?.settledBalance || 0) + (summary?.escrowBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            GH₵ {summary?.escrowBalance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) || 0}
           </Text>
-          <Text style={styles.statLabel}>Total Balance</Text>
+          <Text style={styles.statLabel}>Escrow Funded</Text>
           <View style={styles.cardArrow}>
             <ArrowRight size={12} color="#94A3B8" />
           </View>
@@ -135,13 +120,13 @@ export default function DashboardTab({ user, onNavigate }) {
 
         <TouchableOpacity 
           style={styles.statCard} 
-          onPress={() => onNavigate('ratings')}
+          onPress={() => onNavigate('analytics')}
         >
           <View style={[styles.iconBox, { backgroundColor: '#FDF2F8' }]}>
-            <Star size={16} color="#DB2777" />
+            <TrendingUp size={16} color="#DB2777" />
           </View>
-          <Text style={styles.statValue}>{(summary?.ratingScore || 5.0).toFixed(1)}</Text>
-          <Text style={styles.statLabel}>Rating Score</Text>
+          <Text style={styles.statValue}>{summary?.acceptanceRate || '100%'}</Text>
+          <Text style={styles.statLabel}>Acceptance Rate</Text>
           <View style={styles.cardArrow}>
             <ArrowRight size={12} color="#94A3B8" />
           </View>
@@ -149,30 +134,30 @@ export default function DashboardTab({ user, onNavigate }) {
       </View>
 
       {/* Quick Navigation Panel */}
-      <Text style={styles.sectionTitle}>Quick Navigation</Text>
+      <Text style={styles.sectionTitle}>Procurement Shortcuts</Text>
 
       <View style={styles.shortcuts}>
-        <TouchableOpacity style={styles.shortcutItem} onPress={() => onNavigate('analytics')}>
+        <TouchableOpacity style={styles.shortcutItem} onPress={() => onNavigate('marketplace')}>
           <View style={styles.shortcutLeft}>
             <View style={[styles.shortcutIconBox, { backgroundColor: '#F5F3FF' }]}>
-              <BarChart3 size={16} color="#7C3AED" />
+              <Search size={16} color="#7C3AED" />
             </View>
             <View>
-              <Text style={styles.shortcutTitle}>View Analytics & Performance</Text>
-              <Text style={styles.shortcutDesc}>Track conversion rates and historical earnings</Text>
+              <Text style={styles.shortcutTitle}>Browse Crop Marketplace</Text>
+              <Text style={styles.shortcutDesc}>Discover new listings and bid directly to farmers</Text>
             </View>
           </View>
           <ArrowRight size={16} color="#64748B" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.shortcutItem} onPress={() => onNavigate('wallet')}>
+        <TouchableOpacity style={styles.shortcutItem} onPress={() => onNavigate('disputes')}>
           <View style={styles.shortcutLeft}>
-            <View style={[styles.shortcutIconBox, { backgroundColor: '#ECFDF5' }]}>
-              <TrendingUp size={16} color="#059669" />
+            <View style={[styles.shortcutIconBox, { backgroundColor: '#FEF2F2' }]}>
+              <AlertTriangle size={16} color="#EF4444" />
             </View>
             <View>
-              <Text style={styles.shortcutTitle}>Withdraw Settled Funds</Text>
-              <Text style={styles.shortcutDesc}>Withdraw earnings instantly via MTN, Airtel, or Telecel</Text>
+              <Text style={styles.shortcutTitle}>Track or Raise Disputes</Text>
+              <Text style={styles.shortcutDesc}>Resolve issues with order quantity or quality mismatches</Text>
             </View>
           </View>
           <ArrowRight size={16} color="#64748B" />
@@ -258,7 +243,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: '#0F172A',
   },

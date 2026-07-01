@@ -66,7 +66,7 @@ export default function WalletTab() {
       const data = await api.withdrawFunds(withdrawAmount, `${provider}: ${momoNumber}`);
       setBalance(data.balance);
       setHistory(prev => [data.transaction, ...prev]);
-      Alert.alert('Success', `Withdrawal of $${withdrawAmount.toFixed(2)} to ${momoNumber} requested successfully.`);
+      Alert.alert('Success', `Withdrawal of GH₵${withdrawAmount.toFixed(2)} to ${momoNumber} requested successfully.`);
       setModalVisible(false);
       setAmount('');
       setMomoNumber('');
@@ -114,7 +114,7 @@ export default function WalletTab() {
           <Text style={styles.txDate}>{dateStr} • {item.status.toUpperCase()}</Text>
         </View>
         <Text style={[styles.txAmount, { color: amountColor }]}>
-          {amountPrefix}${item.amount.toFixed(2)}
+          {amountPrefix}GH₵{item.amount.toFixed(2)}
         </Text>
       </View>
     );
@@ -129,7 +129,7 @@ export default function WalletTab() {
             <Wallet size={16} color="#64748B" />
             <Text style={styles.balanceLabel}>Settled Balance</Text>
           </View>
-          <Text style={styles.settledAmount}>${balance.settled.toFixed(2)}</Text>
+          <Text style={styles.settledAmount}>GH₵{balance.settled.toFixed(2)}</Text>
           <Text style={styles.balanceSubtext}>Available for withdrawal</Text>
         </View>
 
@@ -140,7 +140,7 @@ export default function WalletTab() {
             <Lock size={16} color="#64748B" />
             <Text style={styles.balanceLabel}>Escrow Balance</Text>
           </View>
-          <Text style={styles.escrowAmount}>${balance.escrow.toFixed(2)}</Text>
+          <Text style={styles.escrowAmount}>GH₵{balance.escrow.toFixed(2)}</Text>
           <Text style={styles.balanceSubtext}>Locked in active transits</Text>
         </View>
       </View>
@@ -204,7 +204,7 @@ export default function WalletTab() {
             <ScrollView contentContainerStyle={styles.modalForm} keyboardShouldPersistTaps="handled">
               <View style={styles.infoBanner}>
                 <Text style={styles.infoBannerText}>
-                  Your withdrawal will be processed instantly and sent to your mobile wallet. Max withdrawal: ${balance.settled.toFixed(2)}.
+                  Your withdrawal will be processed instantly and sent to your mobile wallet. Max withdrawal: GH₵{balance.settled.toFixed(2)}.
                 </Text>
               </View>
 
@@ -237,7 +237,7 @@ export default function WalletTab() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Withdrawal Amount ($) *</Text>
+                <Text style={styles.label}>Withdrawal Amount (GH₵) *</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="e.g., 100"

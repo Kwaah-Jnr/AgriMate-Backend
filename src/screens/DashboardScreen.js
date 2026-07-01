@@ -1,5 +1,6 @@
 // src/screens/DashboardScreen.js
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
+import { api } from '../services/api';
 import {
   StyleSheet,
   Text,
@@ -28,6 +29,7 @@ import {
   Star,
   BarChart3,
   Home,
+  AlertTriangle,
 } from 'lucide-react-native';
 
 // Farmer Tabs
@@ -38,9 +40,58 @@ import WalletTab from './farmer/WalletTab';
 import RatingsTab from './farmer/RatingsTab';
 import AnalyticsTab from './farmer/AnalyticsTab';
 
+// Buyer Tabs
+import BuyerDashboardTab from './buyer/DashboardTab';
+import BuyerMarketplaceTab from './buyer/MarketplaceTab';
+import BuyerOffersTab from './buyer/OffersTab';
+import BuyerOrdersTab from './buyer/OrdersTab';
+import BuyerPaymentsTab from './buyer/PaymentsTab';
+import BuyerRatingsTab from './buyer/RatingsTab';
+import BuyerDisputesTab from './buyer/DisputesTab';
+import BuyerAnalyticsTab from './buyer/AnalyticsTab';
+
+
+// Transporter Tabs
+import TransporterDashboardTab from './transporter/DashboardTab';
+import TransporterJobsTab from './transporter/JobsTab';
+import TransporterDeliveryTab from './transporter/DeliveryTab';
+import TransporterEarningsTab from './transporter/EarningsTab';
+import TransporterWalletTab from './transporter/WalletTab';
+import TransporterRatingsTab from './transporter/RatingsTab';
+import TransporterAnalyticsTab from './transporter/AnalyticsTab';
+
 export default function DashboardScreen() {
   const { user, logout } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, listings, offers, wallet, ratings, analytics
+  const [pendingOffersCount, setPendingOffersCount] = useState(0);
+  const [unfundedOrdersCount, setUnfundedOrdersCount] = useState(0);
+
+  const fetchNotificationCounts = async () => {
+    if (!user) return;
+    const userRole = user.role ? user.role.toLowerCase() : 'farmer';
+    try {
+      if (userRole === 'farmer') {
+        const summary = await api.fetchDashboardSummary();
+        setPendingOffersCount(summary.pendingOffersCount || 0);
+      } else if (userRole === 'buyer') {
+        const ordersData = await api.fetchBuyerOrders();
+        const unfunded = ordersData.filter(o => o.escrowStatus !== 'funded').length;
+        setUnfundedOrdersCount(unfunded);
+      }
+    } catch (err) {
+      console.error('Error fetching notification counts:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotificationCounts();
+    const interval = setInterval(fetchNotificationCounts, 8000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
+    fetchNotificationCounts();
+  }, [activeTab]);
 
   const name = user?.fullName || 'AgriMate Member';
   const role = user?.role ? user.role.toLowerCase() : 'farmer';
@@ -75,7 +126,7 @@ export default function DashboardScreen() {
             <Text style={styles.statLabel}>Active Procurements</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>$2,150</Text>
+            <Text style={styles.statNumber}>GH₵2,150</Text>
             <Text style={styles.statLabel}>Total Procurement Value</Text>
           </View>
         </View>
@@ -122,82 +173,7 @@ export default function DashboardScreen() {
     </ScrollView>
   );
 
-  const renderTransporterDashboard = () => (
-    <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-      {/* Typographic Profile Info */}
-      <View style={styles.profileSection}>
-        <Text style={styles.profileGreeting}>Welcome back,</Text>
-        <Text style={styles.profileName}>{name}</Text>
-        <Text style={styles.profileEmail}>{email}</Text>
-        
-        <View style={styles.metaRow}>
-          <View style={styles.metaBadge}>
-            <MapPin size={12} color="#64748B" style={styles.metaIcon} />
-            <Text style={styles.metaText}>{location}</Text>
-          </View>
-          {user?.vehicleNumber && (
-            <View style={styles.metaBadge}>
-              <Truck size={12} color="#64748B" style={styles.metaIcon} />
-              <Text style={styles.metaText}>Plate: {user.vehicleNumber}</Text>
-            </View>
-          )}
-        </View>
-      </View>
 
-      <View style={styles.dashboardBody}>
-        {/* Refined Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>3</Text>
-            <Text style={styles.statLabel}>Active Deliveries</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>1,240 mi</Text>
-            <Text style={styles.statLabel}>Total Distance Logged</Text>
-          </View>
-        </View>
-
-        {/* Clean Actions */}
-        <Text style={styles.sectionTitle}>Logistics Actions</Text>
-        <View style={styles.actionGrid}>
-          <TouchableOpacity style={styles.actionCard}>
-            <Search size={20} color="#12372A" />
-            <Text style={styles.actionCardTitle}>Browse Route Jobs</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard}>
-            <Navigation size={20} color="#12372A" />
-            <Text style={styles.actionCardTitle}>Optimize Route Map</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Simplified Activity List */}
-        <Text style={styles.sectionTitle}>Delivery History</Text>
-        <View style={styles.activityList}>
-          <View style={styles.activityItem}>
-            <View style={styles.activityInfo}>
-              <Text style={styles.activityTitle}>Corn Silo Delivery (Bulk)</Text>
-              <Text style={styles.activityDesc}>Route: Central Silo — 120 mi</Text>
-            </View>
-            <View style={styles.activityStatus}>
-              <Text style={styles.statusCompleted}>Completed</Text>
-              <Text style={styles.statusTime}>1d ago</Text>
-            </View>
-          </View>
-
-          <View style={styles.activityItem}>
-            <View style={styles.activityInfo}>
-              <Text style={styles.activityTitle}>Tomato Batch Dispatch</Text>
-              <Text style={styles.activityDesc}>Route: Fresh Foods Depot — 45 mi</Text>
-            </View>
-            <View style={styles.activityStatus}>
-              <Text style={styles.statusTransit}>Active</Text>
-              <Text style={styles.statusTime}>1h ago</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-    </ScrollView>
-  );
 
   if (role === 'farmer') {
     return (
@@ -247,7 +223,14 @@ export default function DashboardScreen() {
             style={styles.tabButton} 
             onPress={() => setActiveTab('offers')}
           >
-            <ShoppingBag size={18} color={activeTab === 'offers' ? '#12372A' : '#94A3B8'} />
+            <View style={{ position: 'relative' }}>
+              <ShoppingBag size={18} color={activeTab === 'offers' ? '#12372A' : '#94A3B8'} />
+              {pendingOffersCount > 0 && (
+                <View style={styles.badgeContainer}>
+                  <Text style={styles.badgeText}>{pendingOffersCount}</Text>
+                </View>
+              )}
+            </View>
             <Text style={[styles.tabButtonLabel, activeTab === 'offers' && styles.tabButtonLabelActive]}>Offers</Text>
           </TouchableOpacity>
 
@@ -279,7 +262,210 @@ export default function DashboardScreen() {
     );
   }
 
-  // Fallback for Buyer and Transporter
+  if (role === 'buyer') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        
+        {/* Clean Navigation Bar */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>AgriMate</Text>
+            <Text style={styles.headerSubtitle}>Procurement Portal</Text>
+          </View>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Modular Screen Render */}
+        <View style={styles.tabContentContainer}>
+          {activeTab === 'dashboard' && <BuyerDashboardTab user={user} onNavigate={setActiveTab} />}
+          {activeTab === 'marketplace' && <BuyerMarketplaceTab onNavigate={setActiveTab} />}
+          {activeTab === 'offers' && <BuyerOffersTab />}
+          {activeTab === 'orders' && <BuyerOrdersTab />}
+          {activeTab === 'payments' && <BuyerPaymentsTab />}
+          {activeTab === 'ratings' && <BuyerRatingsTab />}
+          {activeTab === 'disputes' && <BuyerDisputesTab />}
+          {activeTab === 'analytics' && <BuyerAnalyticsTab />}
+        </View>
+
+        {/* Premium Bottom Tab Bar */}
+        <View style={styles.bottomTabBarScrollContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomTabBarScrollContent}>
+            <View style={styles.bottomTabBarBuyer}>
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('dashboard')}
+              >
+                <Home size={18} color={activeTab === 'dashboard' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'dashboard' && styles.tabButtonLabelActive]}>Home</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('marketplace')}
+              >
+                <Search size={18} color={activeTab === 'marketplace' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'marketplace' && styles.tabButtonLabelActive]}>Market</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('offers')}
+              >
+                <ShoppingBag size={18} color={activeTab === 'offers' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'offers' && styles.tabButtonLabelActive]}>Offers</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('orders')}
+              >
+                <View style={{ position: 'relative' }}>
+                  <Clock size={18} color={activeTab === 'orders' ? '#12372A' : '#94A3B8'} />
+                  {unfundedOrdersCount > 0 && (
+                    <View style={styles.badgeContainer}>
+                      <Text style={styles.badgeText}>{unfundedOrdersCount}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.tabButtonLabel, activeTab === 'orders' && styles.tabButtonLabelActive]}>Orders</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('payments')}
+              >
+                <Wallet size={18} color={activeTab === 'payments' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'payments' && styles.tabButtonLabelActive]}>Payments</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('ratings')}
+              >
+                <Star size={18} color={activeTab === 'ratings' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'ratings' && styles.tabButtonLabelActive]}>Ratings</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('disputes')}
+              >
+                <AlertTriangle size={18} color={activeTab === 'disputes' ? '#EF4444' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'disputes' && styles.tabButtonLabelActive]}>Disputes</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('analytics')}
+              >
+                <BarChart3 size={18} color={activeTab === 'analytics' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'analytics' && styles.tabButtonLabelActive]}>Analytics</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Fallback for Transporter
+  if (role === 'transporter') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        
+        {/* Clean Navigation Bar */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>AgriMate</Text>
+            <Text style={styles.headerSubtitle}>Logistics Portal</Text>
+          </View>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Modular Screen Render */}
+        <View style={styles.tabContentContainer}>
+          {activeTab === 'dashboard' && <TransporterDashboardTab user={user} onNavigate={setActiveTab} />}
+          {activeTab === 'jobs' && <TransporterJobsTab />}
+          {activeTab === 'delivery' && <TransporterDeliveryTab />}
+          {activeTab === 'earnings' && <TransporterEarningsTab />}
+          {activeTab === 'wallet' && <TransporterWalletTab />}
+          {activeTab === 'ratings' && <TransporterRatingsTab />}
+          {activeTab === 'analytics' && <TransporterAnalyticsTab />}
+        </View>
+
+        {/* Premium Bottom Tab Bar */}
+        <View style={styles.bottomTabBarScrollContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomTabBarScrollContent}>
+            <View style={styles.bottomTabBarBuyer}>
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('dashboard')}
+              >
+                <Home size={18} color={activeTab === 'dashboard' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'dashboard' && styles.tabButtonLabelActive]}>Home</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('jobs')}
+              >
+                <Search size={18} color={activeTab === 'jobs' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'jobs' && styles.tabButtonLabelActive]}>Jobs</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('delivery')}
+              >
+                <Truck size={18} color={activeTab === 'delivery' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'delivery' && styles.tabButtonLabelActive]}>Delivery</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('earnings')}
+              >
+                <TrendingUp size={18} color={activeTab === 'earnings' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'earnings' && styles.tabButtonLabelActive]}>Earnings</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('wallet')}
+              >
+                <Wallet size={18} color={activeTab === 'wallet' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'wallet' && styles.tabButtonLabelActive]}>Wallet</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('ratings')}
+              >
+                <Star size={18} color={activeTab === 'ratings' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'ratings' && styles.tabButtonLabelActive]}>Ratings</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('analytics')}
+              >
+                <BarChart3 size={18} color={activeTab === 'analytics' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'analytics' && styles.tabButtonLabelActive]}>Analytics</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Fallback for generic transporter/errors
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -288,18 +474,12 @@ export default function DashboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>AgriMate</Text>
-          <Text style={styles.headerSubtitle}>
-            {role === 'buyer' && 'Procurement Portal'}
-            {role === 'transporter' && 'Logistics Portal'}
-          </Text>
+          <Text style={styles.headerSubtitle}>Portal Error</Text>
         </View>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutButtonText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
-
-      {role === 'buyer' && renderBuyerDashboard()}
-      {role === 'transporter' && renderTransporterDashboard()}
     </SafeAreaView>
   );
 }
@@ -532,5 +712,46 @@ const styles = StyleSheet.create({
   tabButtonLabelActive: {
     color: '#12372A',
     fontWeight: '700',
+  },
+  bottomTabBarScrollContainer: {
+    maxHeight: Platform.OS === 'ios' ? 76 : 60,
+    borderTopWidth: 1.5,
+    borderColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+  },
+  bottomTabBarScrollContent: {
+    paddingHorizontal: 12,
+  },
+  bottomTabBarBuyer: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingVertical: 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+  },
+  tabButtonBuyer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 68,
+    gap: 4,
+  },
+  badgeContainer: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    backgroundColor: '#EF4444',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+    lineHeight: 12,
   },
 });
